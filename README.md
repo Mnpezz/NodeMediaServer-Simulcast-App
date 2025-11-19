@@ -4,7 +4,7 @@ A simple, powerful RTMP relay server that simultaneously streams to multiple pla
 
 ## **If you like this project you can send some encouragement.**
 
-[Zap me ⚡](lightning:mnpezz@coinos.io)
+[Zap me ⚡](https://coinos.io/mnpezz)
 
 
 ## Features
