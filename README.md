@@ -2,6 +2,11 @@
 
 A simple, powerful RTMP relay server that simultaneously streams to multiple platforms (Twitch, YouTube, Rumble, Kick, and more) from a single input stream.
 
+## **If you like this project you can send some encouragement.**
+
+[Zap me ⚡](lightning:mnpezz@coinos.io)
+
+
 ## Features
 
 - ✅ Stream to multiple platforms simultaneously
