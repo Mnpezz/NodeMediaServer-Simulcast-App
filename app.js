@@ -52,7 +52,7 @@ const destinations = [
   },
   {
     name: 'Zap.stream',
-    enabled: false, // Disabled by default - has performance issues
+    enabled: false, // Disabled by default - has performance issues -  Critical 1.90 FPS 212 kbps
     url: 'rtmp://in.core.zap.stream:1935/Basic/YOUR_ZAP_STREAM_KEY'
   }
   // Add more destinations as needed:
