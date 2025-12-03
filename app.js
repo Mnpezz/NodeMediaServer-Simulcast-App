@@ -28,32 +28,32 @@ const config = {
 
 //------------------------------------------------------------------------------
 // STREAM DESTINATIONS
-// Add your stream keys here. Set enabled: false to disable a destination.
+// Add your stream keys here. Set enabled: false to disable a destination, true to enable.
 //------------------------------------------------------------------------------
 const destinations = [
   {
     name: 'Twitch',
-    enabled: true,
-    url: 'rtmp://live.twitch.tv/app/YOUR_TWITCH_STREAM_KEY'
+    enabled: false,
+    url: 'rtmp://ingest.global-contribute.live-video.net/app/YOUR_TWITCH_STREAM_KEY'
   },
   {
     name: 'YouTube',
-    enabled: true,
+    enabled: false,
     url: 'rtmp://a.rtmp.youtube.com/live2/YOUR_YOUTUBE_STREAM_KEY'
   },
   {
     name: 'Rumble',
-    enabled: true,
+    enabled: false,
     url: 'rtmp://rtmp.rumble.com/live/YOUR_RUMBLE_STREAM_KEY'
   },
   {
     name: 'Kick',
-    enabled: true,
+    enabled: false,
     url: 'rtmps://fa723fc1b171.global-contribute.live-video.net/live/YOUR_KICK_STREAM_KEY'
   },
   {
     name: 'Zap.stream',
-    enabled: true,
+    enabled: false,
     url: 'rtmp://in.core.zap.stream:1935/Basic/YOUR_ZAP_STREAM_KEY'
   }
   // Add more destinations as needed:
@@ -131,7 +131,10 @@ function getStreamPathFromSession(sessionOrId) {
 
 function normalizeStreamPath(p) {
   if (!p) return null;
-  return p.replace(/^\/+|\/+$/g, '');
+  // Remove leading/trailing slashes, then collapse multiple consecutive slashes into one
+  let normalized = p.replace(/^\/+|\/+$/g, '');
+  normalized = normalized.replace(/\/+/g, '/');
+  return normalized;
 }
 
 function inputUrlFromStream(streamNormalized) {
