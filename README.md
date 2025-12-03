@@ -10,6 +10,7 @@ A simple, powerful RTMP relay server that simultaneously streams to multiple pla
 ## Features
 
 - ✅ Stream to multiple platforms simultaneously
+- ✅ **HLS output with copy codecs (no re-encoding, low CPU usage)**
 - ✅ Automatic reconnection on failures
 - ✅ Watchdog monitoring for stalled connections
 - ✅ Detailed logging per destination
@@ -27,7 +28,7 @@ A simple, powerful RTMP relay server that simultaneously streams to multiple pla
 
 ```bash
 # Install dependencies
-npm install node-media-server
+npm install
 
 # Install PM2 (optional)
 npm install -g pm2
@@ -102,6 +103,55 @@ Example OBS settings:
 - Server: `rtmp://45.55.54.155:1935/live`
 - Stream Key: `mystream`
 
+### HLS Output
+
+The server automatically generates HLS streams for each active stream. HLS uses **copy codecs** (no re-encoding), keeping CPU usage very low.
+
+**How it works:**
+- HLS stream keys work exactly like RTMP - you use any stream key you want
+- The HLS path is automatically derived from your RTMP stream path
+- When you stream to `rtmp://server:1935/live/YOUR_KEY`, HLS is created at `http://server:8001/hls/live__YOUR_KEY/index.m3u8`
+
+**HLS URL Format:**
+```
+http://YOUR_SERVER_IP:8001/hls/[STREAM_PATH]/index.m3u8
+```
+(Stream path has `/` replaced with `__`)
+
+**Examples:**
+
+| RTMP Stream | HLS URL |
+|------------|---------|
+| `rtmp://server:1935/live/mystream` | `http://server:8001/hls/live__mystream/index.m3u8` |
+| `rtmp://server:1935/live/test123` | `http://server:8001/hls/live__test123/index.m3u8` |
+| `rtmp://server:1935/app/streamkey` | `http://server:8001/hls/app__streamkey/index.m3u8` |
+
+**Important:** HLS uses copy codecs, so your input stream must be:
+- **Video:** H.264 codec (most RTMP streams from OBS are H.264)
+- **Audio:** AAC codec (most RTMP streams from OBS are AAC)
+
+If your stream uses different codecs, the copy mode will fail. For typical OBS/Streamlabs streams, this works perfectly!
+
+**HLS Configuration:**
+You can customize HLS settings in `app.js`:
+- `HLS_ENABLED`: Enable/disable HLS output (default: `true`)
+- `HLS_HTTP_PORT`: HTTP port for serving HLS files (default: `8001`)
+- `HLS_SEGMENT_TIME`: Segment duration in seconds (default: `2`)
+- `HLS_PLAYLIST_SIZE`: Number of segments in playlist (default: `6`)
+
+**Firewall:** Make sure port 8001 (or your configured HLS port) is open:
+```bash
+ufw allow 8001/tcp
+```
+
+**Testing HLS:**
+You can test the HLS stream using VLC or any HLS-compatible player:
+- VLC: Media → Open Network Stream → Enter the HLS URL
+- Or use in an HTML5 video player:
+```html
+<video src="http://YOUR_SERVER_IP:8001/hls/live__mystream/index.m3u8" controls></video>
+```
+
 ## Logs
 
 All FFmpeg logs are saved to the `logs/` directory:
@@ -156,8 +206,11 @@ Common platforms:
 ## Performance Notes
 
 - **CPU Usage**: Uses very little CPU since streams are copied, not re-encoded
+  - RTMP relays: Copy codecs (near-zero CPU)
+  - HLS generation: Copy codecs (near-zero CPU, just remuxing/segmenting)
 - **Bandwidth**: Upload bandwidth = (your bitrate) × (number of enabled platforms)
 - **Latency**: Adds minimal latency (~1-2 seconds) to enable multi-platform distribution
+- **HLS Latency**: ~2-12 seconds (depending on segment time and playlist size)
 
 ## Known Issues
 
