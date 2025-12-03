@@ -1,0 +1,23 @@
+{
+  "name": "node-media-server-simulcast",
+  "version": "1.0.0",
+  "description": "NodeMediaServer Multi-Platform Stream Relay with HLS support",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "node-media-server": "^2.6.4",
+    "express": "^4.18.2"
+  },
+  "keywords": [
+    "rtmp",
+    "streaming",
+    "relay",
+    "hls",
+    "multiplatform"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+
