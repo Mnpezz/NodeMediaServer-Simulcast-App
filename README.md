@@ -120,11 +120,19 @@ http://YOUR_SERVER_IP:8001/hls/[STREAM_PATH]/index.m3u8
 
 **Examples:**
 
-| RTMP Stream | HLS URL |
-|------------|---------|
-| `rtmp://server:1935/live/mystream` | `http://server:8001/hls/live__mystream/index.m3u8` |
-| `rtmp://server:1935/live/test123` | `http://server:8001/hls/live__test123/index.m3u8` |
-| `rtmp://server:1935/app/streamkey` | `http://server:8001/hls/app__streamkey/index.m3u8` |
+When streaming with OBS settings:
+- Server: `rtmp://server:1935/live`
+- Stream Key: `mystream`
+
+The full RTMP path is `/live/mystream`, which becomes HLS path `live__mystream`:
+
+| OBS Settings | Full RTMP Path | HLS URL |
+|-------------|---------------|---------|
+| Server: `rtmp://server:1935/live`<br>Key: `mystream` | `/live/mystream` | `http://server:8001/hls/live__mystream/index.m3u8` |
+| Server: `rtmp://server:1935/live`<br>Key: `test123` | `/live/test123` | `http://server:8001/hls/live__test123/index.m3u8` |
+| Server: `rtmp://server:1935/app`<br>Key: `streamkey` | `/app/streamkey` | `http://server:8001/hls/app__streamkey/index.m3u8` |
+
+**Note:** The format is `[APP_NAME]__[STREAM_KEY]` where `__` replaces the `/` in the full RTMP path.
 
 **Important:** HLS uses copy codecs, so your input stream must be:
 - **Video:** H.264 codec (most RTMP streams from OBS are H.264)
@@ -214,7 +222,7 @@ Common platforms:
 
 ## Known Issues
 
-- Some platforms (like Zap.stream) may have infrastructure issues causing extremely slow processing
+- Some platforms may have infrastructure issues causing extremely slow processing
 - If a platform consistently fails, disable it with `enabled: false`
 
 ## Credits
