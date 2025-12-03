@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const express = require('express');
 const NodeMediaServer = require('node-media-server');
 
 //------------------------------------------------------------------------------
@@ -52,7 +53,7 @@ const destinations = [
   },
   {
     name: 'Zap.stream',
-    enabled: false, // Disabled by default - has performance issues -  Critical 1.90 FPS 212 kbps
+    enabled: true,
     url: 'rtmp://in.core.zap.stream:1935/Basic/YOUR_ZAP_STREAM_KEY'
   }
   // Add more destinations as needed:
@@ -64,14 +65,45 @@ const destinations = [
 ];
 
 //------------------------------------------------------------------------------
+// HLS CONFIGURATION
+//------------------------------------------------------------------------------
+const HLS_ENABLED = true; // Set to false to disable HLS output
+const HLS_DIR = path.resolve(__dirname, 'hls');
+const HLS_HTTP_PORT = 8001; // HTTP port for serving HLS files
+const HLS_SEGMENT_TIME = 2; // Segment duration in seconds
+const HLS_PLAYLIST_SIZE = 6; // Number of segments in playlist
+const HLS_DELETE_DELAY = 30000; // Delay before deleting HLS files after stream ends (ms)
+
+//------------------------------------------------------------------------------
 // SETUP
 //------------------------------------------------------------------------------
 const LOG_DIR = path.resolve(__dirname, 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+if (!fs.existsSync(HLS_DIR)) fs.mkdirSync(HLS_DIR, { recursive: true });
 
 const ffmpegProcesses = {}; // streamKey → { destName: { proc } }
 const nms = new NodeMediaServer(config);
 nms.run();
+
+// Setup Express server for HLS file serving (on a different port to avoid conflicts)
+const app = express();
+app.use('/hls', express.static(HLS_DIR, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.m3u8')) {
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (filePath.endsWith('.ts')) {
+      res.setHeader('Content-Type', 'video/mp2t');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    }
+  }
+}));
+
+const httpServer = require('http').createServer(app);
+httpServer.listen(HLS_HTTP_PORT, () => {
+  console.log(`[INFO] HLS HTTP server started on port ${HLS_HTTP_PORT}`);
+  console.log(`[INFO] HLS files served at: http://YOUR_SERVER_IP:${HLS_HTTP_PORT}/hls/`);
+});
 
 //------------------------------------------------------------------------------
 // HELPER FUNCTIONS
@@ -118,6 +150,137 @@ function openLogFiles(streamKey, destName) {
     out: fs.createWriteStream(`${base}.out.log`, { flags: 'a' }),
     err: fs.createWriteStream(`${base}.err.log`, { flags: 'a' })
   };
+}
+
+function getHLSOutputPath(streamKey) {
+  return path.join(HLS_DIR, streamKey);
+}
+
+function getHLSManifestPath(streamKey) {
+  return path.join(getHLSOutputPath(streamKey), 'index.m3u8');
+}
+
+function getHLSUrl(streamKey) {
+  return `http://YOUR_SERVER_IP:${HLS_HTTP_PORT}/hls/${streamKey}/index.m3u8`;
+}
+
+function cleanupHLSFiles(streamKey, delay = HLS_DELETE_DELAY) {
+  setTimeout(() => {
+    const hlsPath = getHLSOutputPath(streamKey);
+    if (fs.existsSync(hlsPath)) {
+      console.log(`[INFO] Cleaning up HLS files for stream: ${streamKey}`);
+      try {
+        fs.rmSync(hlsPath, { recursive: true, force: true });
+        console.log(`[INFO] HLS files cleaned up for stream: ${streamKey}`);
+      } catch (err) {
+        console.error(`[ERROR] Failed to cleanup HLS files for ${streamKey}:`, err);
+      }
+    }
+  }, delay);
+}
+
+//------------------------------------------------------------------------------
+// START HLS GENERATION
+//------------------------------------------------------------------------------
+function startHLSGeneration(streamKey, inputUrl) {
+  if (!HLS_ENABLED) {
+    return;
+  }
+
+  if (!ffmpegProcesses[streamKey]) {
+    ffmpegProcesses[streamKey] = {};
+  }
+
+  if (ffmpegProcesses[streamKey]['HLS']) {
+    console.log(`[INFO] HLS generation already running for ${streamKey}`);
+    return;
+  }
+
+  console.log(`[INFO] Starting HLS generation for stream: ${streamKey}`);
+
+  // Create HLS output directory
+  const hlsOutputPath = getHLSOutputPath(streamKey);
+  if (!fs.existsSync(hlsOutputPath)) {
+    fs.mkdirSync(hlsOutputPath, { recursive: true });
+  }
+
+  const hlsManifestPath = getHLSManifestPath(streamKey);
+  const hlsSegmentPattern = path.join(hlsOutputPath, 'segment_%03d.ts');
+
+  // FFmpeg arguments for HLS using copy codecs (no re-encoding)
+  const ffArgs = [
+    '-hide_banner',
+    '-loglevel', 'info',
+    '-re',
+    '-i', inputUrl,
+    '-c:v', 'copy',  // Use copy codec - no re-encoding needed since input is already H.264
+    '-c:a', 'copy',  // Use copy codec - no re-encoding needed since input is already AAC
+    '-f', 'hls',
+    '-hls_time', String(HLS_SEGMENT_TIME),
+    '-hls_list_size', String(HLS_PLAYLIST_SIZE),
+    '-hls_flags', 'delete_segments',
+    '-hls_segment_filename', hlsSegmentPattern,
+    hlsManifestPath
+  ];
+
+  const logs = openLogFiles(streamKey, 'HLS');
+  const ff = spawn('/usr/bin/ffmpeg', ffArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  let lastDataTime = Date.now();
+
+  ff.stdout.on('data', d => {
+    logs.out.write(d);
+    lastDataTime = Date.now();
+  });
+
+  ff.stderr.on('data', d => {
+    logs.err.write(d);
+    lastDataTime = Date.now();
+  });
+
+  ff.on('close', code => {
+    console.log(`[INFO] FFmpeg HLS generation exited (code: ${code})`);
+    logs.out.end();
+    logs.err.end();
+
+    if (ffmpegProcesses[streamKey] && ffmpegProcesses[streamKey]['HLS']) {
+      delete ffmpegProcesses[streamKey]['HLS'];
+    }
+  });
+
+  ff.on('error', err => {
+    console.error(`[ERROR] FFmpeg HLS spawn error:`, err);
+    logs.err.write(`Spawn error: ${err.message}\n`);
+    logs.out.end();
+    logs.err.end();
+  });
+
+  ffmpegProcesses[streamKey]['HLS'] = { proc: ff };
+  
+  const hlsUrl = getHLSUrl(streamKey);
+  console.log(`[INFO] HLS stream available at: ${hlsUrl}`);
+}
+
+//------------------------------------------------------------------------------
+// STOP HLS GENERATION
+//------------------------------------------------------------------------------
+function stopHLSGeneration(streamKey) {
+  if (!ffmpegProcesses[streamKey] || !ffmpegProcesses[streamKey]['HLS']) {
+    return;
+  }
+
+  console.log(`[INFO] Stopping HLS generation for stream: ${streamKey}`);
+
+  try {
+    ffmpegProcesses[streamKey]['HLS'].proc.kill('SIGINT');
+  } catch (e) {
+    console.error(`[ERROR] Failed to kill HLS process:`, e);
+  }
+
+  delete ffmpegProcesses[streamKey]['HLS'];
+  
+  // Cleanup HLS files after delay
+  cleanupHLSFiles(streamKey);
 }
 
 //------------------------------------------------------------------------------
@@ -233,6 +396,11 @@ function startFFmpegRelay(rawPath) {
   const enabledDestinations = destinations.filter(d => d.enabled);
   console.log(`[INFO] Enabled destinations: ${enabledDestinations.map(d => d.name).join(', ')}`);
 
+  // Start HLS generation first (before other relays)
+  if (HLS_ENABLED) {
+    startHLSGeneration(streamKey, inputUrl);
+  }
+
   enabledDestinations.forEach((dest, index) => {
     if (ffmpegProcesses[streamKey][dest.name]) {
       console.log(`[INFO] Relay to ${dest.name} already running`);
@@ -271,6 +439,9 @@ function stopFFmpegRelay(rawPath) {
   }
 
   console.log(`[INFO] Stopping FFmpeg relays for stream: ${streamKey}`);
+
+  // Stop HLS generation first
+  stopHLSGeneration(streamKey);
 
   Object.entries(ffmpegProcesses[streamKey]).forEach(([destName, info]) => {
     try {
@@ -324,6 +495,8 @@ process.on('SIGINT', () => {
         console.error('[ERROR] Failed to kill process:', e);
       }
     });
+    // Cleanup HLS files
+    cleanupHLSFiles(key, 0);
   });
   setTimeout(() => process.exit(0), 2000);
 });
@@ -338,6 +511,8 @@ process.on('SIGTERM', () => {
         console.error('[ERROR] Failed to kill process:', e);
       }
     });
+    // Cleanup HLS files
+    cleanupHLSFiles(key, 0);
   });
   setTimeout(() => process.exit(0), 2000);
 });
@@ -346,4 +521,7 @@ process.on('SIGTERM', () => {
 console.log('[INFO] NodeMediaServer Multi-Platform Relay started');
 console.log('[INFO] RTMP input: rtmp://YOUR_SERVER_IP:1935/live/YOUR_STREAM_KEY');
 console.log('[INFO] Enabled destinations:', destinations.filter(d => d.enabled).map(d => d.name).join(', '));
+if (HLS_ENABLED) {
+  console.log(`[INFO] HLS enabled: http://YOUR_SERVER_IP:${HLS_HTTP_PORT}/hls/[STREAM_KEY]/index.m3u8`);
+}
 console.log('[INFO] Logs directory:', LOG_DIR);
